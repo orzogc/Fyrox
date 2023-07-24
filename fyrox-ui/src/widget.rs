@@ -642,6 +642,10 @@ pub struct Widget {
     pub layout_events_sender: Option<Sender<LayoutEvent>>,
     /// Unique identifier of the widget.
     pub id: Uuid,
+    /// Defines an arbitrary index that will be used to prioritize widgets in the keyboard navigation using Tab key.
+    pub tab_index: usize,
+    /// A flag, that defines whether the widget will/won't participate in the keyboard navigation using Tab key.
+    pub is_tab_stop: bool,
     //
     // Layout. Interior mutability is a must here because layout performed in a series of recursive calls.
     //
@@ -1507,6 +1511,10 @@ pub struct WidgetBuilder {
     pub clip_to_bounds: bool,
     /// Unique id of the widget.
     pub id: Uuid,
+    /// Defines an arbitrary index that will be used to prioritize widgets in the keyboard navigation using Tab key.
+    pub tab_index: usize,
+    /// A flag, that defines whether the widget will/won't participate in the keyboard navigation using Tab key.
+    pub is_tab_stop: bool,
 }
 
 impl Default for WidgetBuilder {
@@ -1552,6 +1560,8 @@ impl WidgetBuilder {
             render_transform: Matrix3::identity(),
             clip_to_bounds: true,
             id: Uuid::new_v4(),
+            tab_index: 0,
+            is_tab_stop: false,
         }
     }
 
@@ -1783,6 +1793,18 @@ impl WidgetBuilder {
         self
     }
 
+    /// Defines an arbitrary index that will be used to prioritize widgets in the keyboard navigation using Tab key.
+    pub fn with_tab_index(mut self, tab_index: usize) -> Self {
+        self.tab_index = tab_index;
+        self
+    }
+
+    /// A flag, that defines whether the widget will/won't participate in the keyboard navigation using Tab key.
+    pub fn with_is_tab_stop(mut self, is_tab_stop: bool) -> Self {
+        self.is_tab_stop = is_tab_stop;
+        self
+    }
+
     /// Finishes building of the base widget.
     pub fn build(self) -> Widget {
         Widget {
@@ -1837,6 +1859,8 @@ impl WidgetBuilder {
             visual_transform: Matrix3::identity(),
             clip_to_bounds: self.clip_to_bounds,
             id: self.id,
+            tab_index: self.tab_index,
+            is_tab_stop: self.is_tab_stop,
         }
     }
 }

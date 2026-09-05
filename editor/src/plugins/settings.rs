@@ -240,44 +240,6 @@ impl SettingsWindow {
         ui.send(self.inspector, InspectorMessage::Context(context));
     }
 
-    fn apply_filter(&self, filter_text: &str, ui: &UserInterface) {
-        fn apply_recursive(
-            filter_text: &str,
-            inspector: Handle<UiNode>,
-            ui: &UserInterface,
-        ) -> bool {
-            let inspector = ok_or_return!(ui.try_get_of_type::<Inspector>(inspector), false);
-
-            let mut is_any_match = false;
-            for entry in inspector.context.entries.iter() {
-                // First look at any inner inspectors, because they could also contain properties
-                // matching search criteria.
-                let mut inner_match = false;
-                let sub_inspector = ui.find_handle(entry.property_editor, &mut |node| {
-                    node.is_or_has_field::<Inspector>()
-                });
-                if sub_inspector.is_some() {
-                    inner_match |= apply_recursive(filter_text, sub_inspector, ui);
-                }
-
-                let display_name = entry.property_display_name.to_lowercase();
-                inner_match |= display_name.contains(filter_text)
-                    || fuzzy_compare(filter_text, display_name.as_str()) >= 0.5;
-
-                ui.send(
-                    entry.property_container,
-                    WidgetMessage::Visibility(inner_match),
-                );
-
-                is_any_match |= inner_match;
-            }
-
-            is_any_match
-        }
-
-        apply_recursive(filter_text, self.inspector.to_base(), ui);
-    }
-
     pub fn handle_ui_message(
         mut self,
         message: &UiMessage,
@@ -343,7 +305,7 @@ impl SettingsWindow {
         } else if let Some(SearchBarMessage::Text(search_text)) = message.data_from(self.search_bar)
         {
             let filter = search_text.to_lowercase();
-            self.apply_filter(&filter, ui);
+            ui[self.inspector].apply_filter(&filter, ui);
         }
 
         if let GraphicsContext::Initialized(ref mut graphics_context) = engine.graphics_context {

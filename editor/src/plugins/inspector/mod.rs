@@ -63,6 +63,7 @@ use crate::{
     Editor, Message, WidgetMessage, WrapMode,
 };
 use fyrox::gui::inspector::InspectorEnvironmentContainer;
+use fyrox::gui::searchbar::{SearchBar, SearchBarBuilder, SearchBarMessage};
 use std::{any::Any, sync::mpsc::Sender, sync::Arc};
 
 pub mod editors;
@@ -123,6 +124,7 @@ pub struct InspectorPlugin {
     pub inspector: Handle<fyrox::gui::inspector::Inspector>,
     pub head: Handle<StackPanel>,
     pub footer: Handle<UiNode>,
+    search_bar: Handle<SearchBar>,
     warning_text: Handle<Text>,
     type_name_text: Handle<Text>,
     docs_button: Handle<Button>,
@@ -219,7 +221,7 @@ impl InspectorPlugin {
             Only common properties will be editable!";
 
         let head = StackPanelBuilder::new(WidgetBuilder::new()).build(ctx);
-        let footer = BorderBuilder::new(WidgetBuilder::new().on_row(3))
+        let footer = BorderBuilder::new(WidgetBuilder::new().on_row(4))
             .build(ctx)
             .to_base();
         let inspector =
@@ -229,55 +231,53 @@ impl InspectorPlugin {
             StackPanelBuilder::new(WidgetBuilder::new().with_child(head).with_child(inspector))
                 .build(ctx);
 
-        let warning_text;
-        let type_name_text;
-        let docs_button;
+        let warning_text = TextBuilder::new(
+            WidgetBuilder::new()
+                .with_visibility(false)
+                .with_margin(Thickness::left(4.0))
+                .with_foreground(ctx.style.property(Style::BRUSH_ERROR))
+                .on_row(0),
+        )
+        .with_wrap(WrapMode::Word)
+        .with_text(warning_text_str)
+        .build(ctx);
+        let search_bar = SearchBarBuilder::new(
+            WidgetBuilder::new()
+                .on_row(2)
+                .with_margin(Thickness::uniform(2.0)),
+        )
+        .build(ctx);
+        let type_name_text = TextBuilder::new(
+            WidgetBuilder::new()
+                .with_margin(Thickness::uniform(4.0))
+                .on_row(0)
+                .on_column(0),
+        )
+        .with_wrap(WrapMode::NoWrap)
+        .build(ctx);
+        let docs_button = ImageButtonBuilder::default()
+            .with_image_color(Color::YELLOW)
+            .with_width(26.0)
+            .with_height(26.0)
+            .on_column(1)
+            .with_image(load_image!("../../../resources/doc.png"))
+            .with_tooltip("Open Documentation")
+            .with_tab_index(Some(0))
+            .build_button(ctx);
         let window = WindowBuilder::new(WidgetBuilder::new().with_name("Inspector"))
             .with_title(WindowTitle::text("Inspector"))
             .with_tab_label("Inspector")
             .with_content(
                 GridBuilder::new(
                     WidgetBuilder::new()
-                        .with_child({
-                            warning_text = TextBuilder::new(
-                                WidgetBuilder::new()
-                                    .with_visibility(false)
-                                    .with_margin(Thickness::left(4.0))
-                                    .with_foreground(ctx.style.property(Style::BRUSH_ERROR))
-                                    .on_row(0),
-                            )
-                            .with_wrap(WrapMode::Word)
-                            .with_text(warning_text_str)
-                            .build(ctx);
-                            warning_text
-                        })
+                        .with_child(warning_text)
+                        .with_child(search_bar)
                         .with_child(
                             GridBuilder::new(
                                 WidgetBuilder::new()
                                     .on_row(1)
-                                    .with_child({
-                                        type_name_text = TextBuilder::new(
-                                            WidgetBuilder::new()
-                                                .with_margin(Thickness::uniform(4.0))
-                                                .on_row(0)
-                                                .on_column(0),
-                                        )
-                                        .with_wrap(WrapMode::NoWrap)
-                                        .build(ctx);
-                                        type_name_text
-                                    })
-                                    .with_child({
-                                        docs_button = ImageButtonBuilder::default()
-                                            .with_image_color(Color::YELLOW)
-                                            .with_width(26.0)
-                                            .with_height(26.0)
-                                            .on_column(1)
-                                            .with_image(load_image!("../../../resources/doc.png"))
-                                            .with_tooltip("Open Documentation")
-                                            .with_tab_index(Some(0))
-                                            .build_button(ctx);
-                                        docs_button
-                                    }),
+                                    .with_child(type_name_text)
+                                    .with_child(docs_button),
                             )
                             .add_row(Row::auto())
                             .add_column(Column::stretch())
@@ -285,12 +285,13 @@ impl InspectorPlugin {
                             .build(ctx),
                         )
                         .with_child(
-                            ScrollViewerBuilder::new(WidgetBuilder::new().on_row(2))
+                            ScrollViewerBuilder::new(WidgetBuilder::new().on_row(3))
                                 .with_content(content)
                                 .build(ctx),
                         )
                         .with_child(footer),
                 )
+                .add_row(Row::auto())
                 .add_row(Row::auto())
                 .add_row(Row::auto())
                 .add_row(Row::stretch())
@@ -309,6 +310,7 @@ impl InspectorPlugin {
             docs_button,
             clipboard: None,
             footer,
+            search_bar,
         }
     }
 
@@ -532,6 +534,11 @@ impl EditorPlugin for InspectorPlugin {
                     _ => (),
                 }
             }
+        } else if let Some(SearchBarMessage::Text(search_text)) = message.data_from(self.search_bar)
+        {
+            let ui = editor.engine.user_interfaces.first();
+            let filter = search_text.to_lowercase();
+            ui[self.inspector].apply_filter(&filter, ui);
         }
 
         if let Some(InspectorMessage::PropertyChanged(args)) =

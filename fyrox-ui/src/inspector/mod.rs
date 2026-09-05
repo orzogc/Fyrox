@@ -53,6 +53,7 @@ use crate::{
     BuildContext, Control, RcUiNodeHandle, Thickness, UiNode, UserInterface, VerticalAlignment,
 };
 use copypasta::ClipboardProvider;
+use fyrox_core::ok_or_return;
 use fyrox_graph::{
     constructor::{ConstructorProvider, GraphNodeConstructor},
     SceneGraph,
@@ -716,6 +717,44 @@ impl ConstructorProvider<UiNode, UserInterface> for Inspector {
 crate::define_widget_deref!(Inspector);
 
 impl Inspector {
+    pub fn apply_filter(&self, filter_text: &str, ui: &UserInterface) {
+        fn apply_recursive(
+            filter_text: &str,
+            inspector: Handle<UiNode>,
+            ui: &UserInterface,
+        ) -> bool {
+            let inspector = ok_or_return!(ui.try_get_of_type::<Inspector>(inspector), false);
+
+            let mut is_any_match = false;
+            for entry in inspector.context.entries.iter() {
+                // First look at any inner inspectors, because they could also contain properties
+                // matching search criteria.
+                let mut inner_match = false;
+                let sub_inspector = ui.find_handle(entry.property_editor, &mut |node| {
+                    node.is_or_has_field::<Inspector>()
+                });
+                if sub_inspector.is_some() {
+                    inner_match |= apply_recursive(filter_text, sub_inspector, ui);
+                }
+
+                let display_name = entry.property_display_name.to_lowercase();
+                inner_match |= display_name.contains(filter_text)
+                    || rust_fuzzy_search::fuzzy_compare(filter_text, display_name.as_str()) >= 0.5;
+
+                ui.send(
+                    entry.property_container,
+                    WidgetMessage::Visibility(inner_match),
+                );
+
+                is_any_match |= inner_match;
+            }
+
+            is_any_match
+        }
+
+        apply_recursive(filter_text, self.handle, ui);
+    }
+
     pub fn handle_context_menu_message(
         inspector: Handle<Inspector>,
         message: &UiMessage,

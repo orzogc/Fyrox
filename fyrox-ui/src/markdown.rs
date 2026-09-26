@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use crate::wrap_panel::WrapPanelBuilder;
+use crate::text::TextMessage;
 use crate::{
     border::BorderBuilder,
     core::{err, pool::Handle},
@@ -26,8 +26,8 @@ use crate::{
     stack_panel::StackPanelBuilder,
     style::{resource::StyleResourceExt, Style},
     text::TextBuilder,
-    widget::WidgetBuilder,
-    BuildContext, Orientation, Thickness, UiNode, UserInterface,
+    widget::{WidgetBuilder, WidgetMessage},
+    BuildContext, Thickness, UiNode, UserInterface, VerticalAlignment,
 };
 
 fn heading_depth_to_font_size(heading_depth: u8) -> f32 {
@@ -72,62 +72,76 @@ pub fn markdown_to_visual_tree(ui: &mut UserInterface, text: impl AsRef<str>) ->
         heading_depth: &mut u8,
         ui: &mut UserInterface,
     ) -> Handle<UiNode> {
-        let mut widget_builder = WidgetBuilder::new();
-
         let prev_heading_depth = *heading_depth;
 
         match ast_node {
-            Node::Paragraph(_) => {
-                widget_builder = widget_builder.with_margin(Thickness::top(16.0));
+            Node::Paragraph(paragraph) => {
+                let paragraph_text =
+                    TextBuilder::new(WidgetBuilder::new().with_margin(Thickness::top(16.0)))
+                        .with_font_size(heading_depth_to_font_size(*heading_depth).into())
+                        .with_wrap(WrapMode::Word)
+                        .build(&mut ui.build_ctx())
+                        .to_base();
+
+                let mut full_text = String::new();
+
+                for child_ast_node in paragraph.children.iter() {
+                    if let Node::Text(text) = child_ast_node {
+                        full_text.push_str(&text.value);
+                    } else {
+                        let child_widget =
+                            traverse_ast_recursively(child_ast_node, heading_depth, ui);
+                        let child_widget_ref = &mut ui[child_widget];
+                        child_widget_ref.set_column(full_text.chars().count().saturating_sub(1));
+                        child_widget_ref.set_vertical_alignment(VerticalAlignment::Center);
+                        ui.send(child_widget, WidgetMessage::LinkWith(paragraph_text));
+                    }
+                }
+
+                ui.send(paragraph_text, TextMessage::Text(full_text));
+
+                paragraph_text
             }
-            Node::Heading(heading) => {
-                *heading_depth = heading.depth;
+            ast_node => {
+                if let Node::Heading(heading) = ast_node {
+                    *heading_depth = heading.depth;
+                }
+
+                let mut widget_builder = WidgetBuilder::new();
+
+                if let Some(children) = ast_node.children() {
+                    for child_ast_node in children {
+                        let child_widget =
+                            traverse_ast_recursively(child_ast_node, heading_depth, ui);
+                        widget_builder = widget_builder.with_child(child_widget);
+                    }
+                }
+
+                *heading_depth = prev_heading_depth;
+
+                let ctx = &mut ui.build_ctx();
+
+                match ast_node {
+                    Node::InlineCode(inline_code) => make_text_with_border(
+                        widget_builder,
+                        *heading_depth,
+                        &inline_code.value,
+                        WrapMode::NoWrap,
+                        ctx,
+                    ),
+                    Node::Code(code) => make_text_with_border(
+                        widget_builder,
+                        *heading_depth,
+                        &code.value,
+                        WrapMode::Word,
+                        ctx,
+                    ),
+                    _ => StackPanelBuilder::new(widget_builder)
+                        .build(ctx)
+                        .to_base::<UiNode>(),
+                }
             }
-            _ => (),
         }
-
-        if let Some(children) = ast_node.children() {
-            for child_ast_node in children {
-                let child_widget = traverse_ast_recursively(child_ast_node, heading_depth, ui);
-                widget_builder = widget_builder.with_child(child_widget);
-            }
-        }
-
-        *heading_depth = prev_heading_depth;
-
-        let ctx = &mut ui.build_ctx();
-
-        let widget = match ast_node {
-            Node::Text(text) => TextBuilder::new(widget_builder)
-                .with_text(&text.value)
-                .with_font_size(heading_depth_to_font_size(*heading_depth).into())
-                .with_wrap(WrapMode::Word)
-                .build(ctx)
-                .to_base(),
-            Node::InlineCode(inline_code) => make_text_with_border(
-                widget_builder,
-                *heading_depth,
-                &inline_code.value,
-                WrapMode::NoWrap,
-                ctx,
-            ),
-            Node::Code(code) => make_text_with_border(
-                widget_builder,
-                *heading_depth,
-                &code.value,
-                WrapMode::Word,
-                ctx,
-            ),
-            Node::Paragraph(_) => WrapPanelBuilder::new(widget_builder)
-                .with_orientation(Orientation::Horizontal)
-                .build(ctx)
-                .to_base(),
-            _ => StackPanelBuilder::new(widget_builder)
-                .build(ctx)
-                .to_base::<UiNode>(),
-        };
-
-        widget
     }
 
     let text = text.as_ref();

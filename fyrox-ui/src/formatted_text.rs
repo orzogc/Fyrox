@@ -1142,6 +1142,26 @@ impl FormattedText {
             } else {
                 let mut prev = None;
                 for (i, &c) in self.text.iter().enumerate().take(line.end).skip(line.begin) {
+                    // Put inlines first (if any).
+                    if let Some(ref inline_ctx) = inline_ctx {
+                        if let Some(inlines) = inlines.get(&i) {
+                            let mut bounds = Vector2::zeros();
+                            for &inline in inlines {
+                                let inline_ref = inline_ctx.ui.node(inline);
+                                let desired_size = inline_ref.desired_size();
+                                inline_ctx.ui.arrange_node(
+                                    inline,
+                                    &Rect {
+                                        position: Vector2::new(x, y),
+                                        size: Vector2::new(desired_size.x, line.height),
+                                    },
+                                );
+                                bounds = bounds.sup(&desired_size);
+                            }
+                            x += bounds.x;
+                        }
+                    }
+
                     let font = self.font_at(i);
                     let font = &mut font.data_ref();
                     let size = self.font_size_at(i);
@@ -1151,26 +1171,6 @@ impl FormattedText {
                             x += metrics.newline_advance();
                         }
                         _ => {
-                            // Put inlines first (if any).
-                            if let Some(ref inline_ctx) = inline_ctx {
-                                if let Some(inlines) = inlines.get(&i) {
-                                    let mut bounds = Vector2::zeros();
-                                    for &inline in inlines {
-                                        let inline_ref = inline_ctx.ui.node(inline);
-                                        let desired_size = inline_ref.desired_size();
-                                        inline_ctx.ui.arrange_node(
-                                            inline,
-                                            &Rect {
-                                                position: Vector2::new(x, y),
-                                                size: Vector2::new(desired_size.x, line.height),
-                                            },
-                                        );
-                                        bounds = bounds.sup(&desired_size);
-                                    }
-                                    x += bounds.x;
-                                }
-                            }
-
                             // Then the glyph.
                             let y1 = y + line.height - metrics.ascender();
                             let scale = self.super_sampling_scale;
